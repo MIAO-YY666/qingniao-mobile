@@ -75,6 +75,11 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SetupActivity::class.java))
         }
 
+        App.lastCrash?.let {
+            chatStore.append("crash", it)
+            Toast.makeText(this, "检测到上次崩溃日志，已显示在运行日志区", Toast.LENGTH_LONG).show()
+        }
+
         refreshStatus()
         handler.post(object : Runnable {
             override fun run() {

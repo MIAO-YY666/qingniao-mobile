@@ -218,7 +218,7 @@ class SetupActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        registerReceiver(completeReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+        androidx.core.content.ContextCompat.registerReceiver(this, completeReceiver, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         refreshPermStatus()
         if (downloadId > 0) startPolling()
     }
