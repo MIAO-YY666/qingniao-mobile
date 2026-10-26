@@ -23,7 +23,7 @@ interface Llm {
  * 本地 GGUF 推理（llama.cpp，骁龙 8+ Gen 1 上 1.5B~3B Q4 可用）。
  * 上下文给 4096：屏幕序列化约 1~2K token，加上历史与动作输出足够。
  */
-class LocalLlm(path: String, nCtx: Int = 4096, nThreads: Int = 6) : Llm {
+class LocalLlm(path: String, nCtx: Int = 8192, nThreads: Int = 6) : Llm {
     private var handle: Long = 0
 
     init {

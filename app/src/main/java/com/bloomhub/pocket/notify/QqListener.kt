@@ -11,6 +11,17 @@ import com.bloomhub.pocket.AgentService
  */
 class QqListener : NotificationListenerService() {
 
+    /** 冷启动兜底：服务没跑就拉起（否则任务只入队没人执行） */
+    private fun startAgentService() {
+        if (!AgentService.running) {
+            try {
+                applicationContext.startForegroundService(android.content.Intent(applicationContext, AgentService::class.java))
+            } catch (e: Exception) {
+                // 后台启动受限时忽略：下次打开 App 会补跑队列
+            }
+        }
+    }
+
     companion object {
         const val QQ_PKG = "com.tencent.mobileqq"
         /** 任务来源（QQ 昵称）：改成你的名字/你信任的人 */
@@ -42,6 +53,7 @@ class QqListener : NotificationListenerService() {
             AgentService.enqueue("QQ 收到来自 $title 的媒体消息（口袋版暂看不了图片），回复一句并说明", "来自 $title 的消息：$text")
             return
         }
-        AgentService.enqueue("用手机 QQ 回复 $title", "他刚发来的消息：$text")
+        startAgentService()
+        AgentService.enqueue("处理 $title 发来的 QQ 消息", "他刚发来的消息：$text")
     }
 }

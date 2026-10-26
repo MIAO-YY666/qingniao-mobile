@@ -29,7 +29,7 @@ class AgentLoop(
 
     suspend fun run(goal: String, qqContext: String? = null, maxSteps: Int = 15): TaskResult {
         if (!ScreenAccess.available) {
-            return TaskResult(false, "无障碍服务未开启：设置 → 无障碍 → 千秋读屏", 0)
+            return TaskResult(false, "无障碍服务未开启：设置 → 无障碍 → 青鸟读屏", 0)
         }
         val sa = ScreenAccess.instance!!
         chat.append("task", goal)
@@ -39,7 +39,7 @@ class AgentLoop(
         var steps = 0
         for (step in 1..maxSteps) {
             steps = step
-            val screen = sa.snapshot(300)
+            val screen = sa.snapshot(240)
             val curPkg = ScreenAccess.currentPackage.ifBlank { pkgFromScreen(screen) }
             if (curPkg != pkg) {
                 pkg = curPkg
@@ -59,7 +59,7 @@ class AgentLoop(
                 Msg("user", userPrompt)
             )
 
-            var raw = llm.chat(messages, maxTokens = 320, temp = 0.2f)
+            var raw = llm.chat(messages, maxTokens = 220, temp = 0.2f)
             if (raw.isBlank()) return TaskResult(false, "模型无输出（本地模型过载或云端网络失败）", step)
             var act = parseAction(raw)
             if (act == null) {
@@ -68,7 +68,7 @@ class AgentLoop(
                     messages + listOf(
                         Msg("assistant", raw.take(300)),
                         Msg("user", "格式错误。只输出一行动作 JSON。")
-                    ), maxTokens = 200, temp = 0.0f
+                    ), maxTokens = 160, temp = 0.0f
                 )
                 act = parseAction(retry)
             }
@@ -182,7 +182,9 @@ class AgentLoop(
 
         /** 从模型输出里抠出第一个 JSON 对象（容忍前后缀噪声与思考段） */
         fun parseAction(raw: String): JSONObject? {
-            val text = raw.substringAfter("<|im_start|>assistant").trim()
+            var text = raw.substringAfter("<|im_start|>assistant").trim()
+            // Qwen3 思考段剥除（即使 /no_think 偶发失效也兜得住）
+            text = text.replace(Regex("<think>[\\s\\S]*?</think>"), "").replace("</think>", "").trim()
             val start = text.indexOf('{')
             if (start < 0) return null
             var depth = 0

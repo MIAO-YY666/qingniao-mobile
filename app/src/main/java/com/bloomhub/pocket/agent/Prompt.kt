@@ -1,9 +1,8 @@
 package com.bloomhub.pocket.agent
 
 /**
- * 提示词组装：哦鲸鲸人格（手机端独立角色）+ 工具协议 + 当前 App 手册 + 相关记忆。
- * 手机端与 PC 端是两个角色：千秋是电脑上的「她」，哦鲸鲸是手机里的新伙伴，
- * 接收主人（主人）或千秋（PC 端姐姐）下发的任务。记忆格式与千秋同构（people 目录的 json 文件）。
+ * 提示词组装：青鸟人格（手机端角色）+ 工具协议 + 当前 App 手册 + 相关记忆。
+ * 手机端默认人格「青鸟」，接收主人或 PC 端搭档下发的任务；记忆格式与 PC 端同构（people 目录的 json 文件）。
  */
 object Prompt {
 
@@ -40,7 +39,11 @@ object Prompt {
 {"action":"done","summary":"已完成：…"}     任务完成（截图会自动清理，不占存储）
 {"action":"fail","reason":"…"}              无法完成，说明原因
 
-【工作流程】接任务 → 需要资料先 web_search → 执行 → 完成后 screenshot + send_screenshot 汇报 → done。
+【消息处理（重要）】收到「处理某人发来的 QQ 消息」类任务时，先判断消息性质：
+· 闲聊/情绪/日常对话 → 直接组织一句符合人设的回复发出去（像朋友聊天，别汇报、别加说明文字）。
+· 任务/请求（查资料、操作手机、问事实）→ 先用 web_search 或读屏把事情办完，再把结果浓缩成一条自然的回复发出去。
+发 QQ 消息的固定通道：open_app 打开QQ → 点顶部搜索框 → 输入联系人名 → 点进聊天 → 点输入框 type 内容 → 点发送 → done。
+【任务流程】普通任务 → 需要资料先 web_search → 执行 → 完成后 screenshot + send_screenshot 汇报 → done。
 【纪律】
 1. 不碰支付/银行/验证码/系统设置危险开关；看不懂的确认弹窗选取消。
 2. 截图发出去就 done，不要恋战；截图文件系统会自动删除。
@@ -50,6 +53,8 @@ object Prompt {
         if (!appManual.isNullOrBlank()) {
             append("\n\n【当前 App 用法手册】\n").append(appManual)
         }
+        // Qwen3 思考模式开关：动作是单行 JSON，不需要推理，关掉可快 5-10 倍
+        append("\n\n/no_think")
     }
 
     fun taskPrompt(goal: String, qqContext: String?): String = buildString {

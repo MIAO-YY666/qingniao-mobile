@@ -22,6 +22,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 import java.util.concurrent.LinkedBlockingQueue
 
 /**
@@ -53,6 +54,24 @@ class AgentService : Service() {
 
         fun hasLlm() = llm != null
 
+        /**
+         * 确保有可用模型：进程重启后静态 llm 会丢，这里从磁盘懒加载。
+         * 所有任务入口（QQ 通知/ADB/主界面）都先调它。
+         */
+        fun ensureLlm(context: android.content.Context): Llm? {
+            if (llm != null) return llm
+            val f = java.io.File(context.filesDir, "models/model.gguf")
+            if (!f.exists()) return null
+            return try {
+                val l = LocalLlm(f.absolutePath)
+                setLlm(l)
+                l
+            } catch (e: Exception) {
+                android.util.Log.e("AgentService", "model reload failed", e)
+                null
+            }
+        }
+
         fun logToUi(line: String) {
             chatStore?.append("log", line)
         }
@@ -78,7 +97,7 @@ class AgentService : Service() {
     private suspend fun loop() {
         while (true) {
             val task = try { queue.take() } catch (e: InterruptedException) { break }
-            val current = llm
+            val current = ensureLlm(this)
             if (current == null) {
                 statusText = "未加载模型，任务被跳过"
                 logToUi("跳过任务（未加载模型）：${task.goal}")
@@ -123,11 +142,30 @@ class AgentService : Service() {
             .build()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // ADB/向导触发的下载：由前台服务盯完成并自动配置（广播接收器 10 秒就会被回收，盯不了）
+        intent?.getStringExtra("importPath")?.let { p ->
+            scope.launch {
+                try {
+                    val r = com.bloomhub.pocket.llm.ModelSetup.importFrom(this@AgentService, p)
+                    logToUi("ADB 导入：$r")
+                } catch (_: Exception) {}
+            }
+        }
+        if (intent?.getBooleanExtra("watchDownload", false) == true) {
+            scope.launch {
+                try { com.bloomhub.pocket.llm.ModelSetup.awaitAndFinalize(this@AgentService) } catch (_: Exception) {}
+            }
+        }
+        return START_STICKY
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         running = false
         if (wakeLock.isHeld) wakeLock.release()
+        scope.cancel()
         super.onDestroy()
     }
 }

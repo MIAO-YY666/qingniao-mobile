@@ -75,6 +75,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SetupActivity::class.java))
         }
 
+        // 上次崩溃原因直接展示（闪退自诊断）
         App.lastCrash?.let {
             chatStore.append("crash", it)
             Toast.makeText(this, "检测到上次崩溃日志，已显示在运行日志区", Toast.LENGTH_LONG).show()
@@ -137,7 +138,7 @@ class MainActivity : AppCompatActivity() {
     private fun toastAndLoad(f: File) {
         modelFile = f
         try {
-            AgentService.setLlm(LocalLlm(f.absolutePath, nCtx = 4096, nThreads = 6))
+            AgentService.setLlm(LocalLlm(f.absolutePath, nCtx = 8192, nThreads = 6))
             Toast.makeText(this, "本地模型已加载 ✓", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
             Toast.makeText(this, "加载失败：${e.message}", Toast.LENGTH_LONG).show()
@@ -159,15 +160,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun startService() {
         if (!ScreenAccess.available) {
-            Toast.makeText(this, "先开启无障碍权限（千秋读屏）", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "先开启无障碍权限（青鸟读屏）", Toast.LENGTH_LONG).show()
             return
         }
-        if (!AgentService.hasLlm()) {
+        if (AgentService.ensureLlm(this) == null) {
             Toast.makeText(this, "先导入模型或配置云端", Toast.LENGTH_LONG).show()
             return
         }
         startForegroundService(Intent(this, AgentService::class.java))
-        Toast.makeText(this, "千秋已启动，在通知栏常驻", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "青鸟已启动，在通知栏常驻", Toast.LENGTH_SHORT).show()
     }
 
     private fun runTask() {

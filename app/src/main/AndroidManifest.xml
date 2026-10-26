@@ -36,6 +36,17 @@
         <!-- 前台服务：承载 Agent 循环与任务队列 -->
         <activity android:name=".SetupActivity" android:exported="false" />
 
+        <receiver
+            android:name=".llm.AdbSetupReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.bloomhub.pocket.ADB_DOWNLOAD" />
+                <action android:name="com.bloomhub.pocket.ADB_IMPORT" />
+                <action android:name="com.bloomhub.pocket.ADB_WIZARD_DONE" />
+                <action android:name="com.bloomhub.pocket.ADB_TASK" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".AgentService"
             android:exported="false"

@@ -12,7 +12,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="哦鲸鲸 · 新手向导"
+            android:text="青鸟 · 新手向导"
             android:textSize="22sp"
             android:textStyle="bold" />
 
@@ -92,7 +92,7 @@
                 android:id="@+id/btnFinish"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="叫醒哦鲸鲸 🐋"
+                android:text="叫醒青鸟 🐋"
                 android:textStyle="bold" />
         </LinearLayout>
     </LinearLayout>

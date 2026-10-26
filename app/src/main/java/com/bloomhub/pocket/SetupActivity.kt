@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.bloomhub.pocket.llm.DeviceProfile
 import com.bloomhub.pocket.llm.LocalLlm
+import com.bloomhub.pocket.llm.ModelSetup
 import com.bloomhub.pocket.llm.ModelCatalog
 import com.bloomhub.pocket.screen.ScreenAccess
 import com.bloomhub.pocket.screen.Screenshot
@@ -63,6 +64,7 @@ class SetupActivity : AppCompatActivity() {
                     "速度 ${"★".repeat(m.speed)}${"☆".repeat(5 - m.speed)}\n${m.desc}" +
                     if (m.id == rec.id) "\n👉 根据你的 ${dev.ramGb}GB 内存，推荐这个" else
                         if (m.minRamGb > dev.ramGb) "\n⚠ 内存偏小，不建议" else ""
+                id = android.view.View.generateViewId()
                 tag = m.id
                 textSize = 13f
                 setPadding(0, 10, 0, 10)
@@ -96,9 +98,7 @@ class SetupActivity : AppCompatActivity() {
 
         // ---- 第 3 步：完成 ----
         findViewById<Button>(R.id.btnFinish).setOnClickListener {
-            if (!AgentService.hasLlm() && existing.exists()) {
-                try { AgentService.setLlm(LocalLlm(existing.absolutePath)) } catch (_: Exception) {}
-            }
+            AgentService.ensureLlm(this)
             prefs.edit().putBoolean("setupDone", true).apply()
             startActivity(Intent(this, MainActivity::class.java))
             finish()
@@ -120,24 +120,14 @@ class SetupActivity : AppCompatActivity() {
 
     private fun startDownload(group: RadioGroup) {
         val m = selectedModel() ?: run { toast("先在上面选一个模型"); return }
-        // 勾选任何选项后已存在模型也允许重新下载（换模型）
-        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-        val req = DownloadManager.Request(android.net.Uri.parse(m.url)).apply {
-            setTitle("哦鲸鲸的脑子：${m.name}")
-            setDescription("下载完成会自动配置，不用管它")
-            setDestinationInExternalFilesDir(this@SetupActivity, Environment.DIRECTORY_DOWNLOADS, "model.gguf.part")
-            setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            setAllowedOverMetered(true)
+        if (ModelSetup.enqueue(this, m)) {
+            findViewById<TextView>(R.id.downloadStatus).text =
+                "⏬ 已开始下载 ${m.name}（约 ${m.sizeMb}MB）。通知栏有进度；下完这页会自动变成「✓ 模型就绪」。"
+            toast("开始下载，去通知栏看进度")
+            startPolling()
+        } else {
+            findViewById<TextView>(R.id.downloadStatus).text = "✗ 下载入队失败（存储空间或网络问题）"
         }
-        // 清掉旧的半成品
-        File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "model.gguf.part").delete()
-        downloadId = dm.enqueue(req)
-        prefs.edit().putLong("modelDownloadId", downloadId)
-            .putString("pendingModelName", m.name).apply()
-        findViewById<TextView>(R.id.downloadStatus).text =
-            "⏬ 已开始下载 ${m.name}（约 ${m.sizeMb}MB）。通知栏能看到进度；下完这一页会自动变成「✓ 模型就绪」。"
-        toast("开始下载，去通知栏看进度")
-        startPolling()
     }
 
     private fun startPolling() {
@@ -158,54 +148,17 @@ class SetupActivity : AppCompatActivity() {
 
     /** 检查下载状态；完成则改名 + 自动加载 + 更新 UI */
     private fun checkDownload() {
-        if (downloadId <= 0) return
-        val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
-        val q = DownloadManager.Query().setFilterById(downloadId)
-        val c: Cursor = dm.query(q) ?: return
-        try {
-            if (!c.moveToFirst()) return
-            val status = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
-            val tv = findViewById<TextView>(R.id.downloadStatus)
-            when (status) {
-                DownloadManager.STATUS_SUCCESSFUL -> {
-                    // 下载落在外部私有目录，搬进应用内部 models/
-                    val part = File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "model.gguf.part")
-                    val target = File(filesDir, "models/model.gguf")
-                    if (part.exists() && part.length() > 50L * 1024 * 1024) {
-                        target.parentFile?.mkdirs()
-                        target.delete()
-                        part.renameTo(target)
-                        // 自动配置：直接加载
-                        try {
-                            AgentService.setLlm(LocalLlm(target.absolutePath))
-                            tv.text = "✓ 模型就绪（${target.length() / 1048576}MB，已自动配置完成）！继续第④步开权限吧"
-                            toast("大脑装好了 ✓")
-                        } catch (e: Exception) {
-                            tv.text = "✓ 下载完成，但加载失败：${e.message}（回主界面重新导入试试）"
-                        }
-                        prefs.edit().putLong("modelDownloadId", -1).apply()
-                        downloadId = -1
-                        stopPolling()
-                    }
-                }
-                DownloadManager.STATUS_RUNNING, DownloadManager.STATUS_PAUSED -> {
-                    val sofar = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                    val total = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                    if (total > 0) {
-                        tv.text = "⏬ 下载中 ${(sofar / 1048576)}/${total / 1048576}MB（${sofar * 100 / total}%）——保持这个页面或去看通知栏，完成后自动配置"
-                    }
-                }
-                DownloadManager.STATUS_FAILED -> {
-                    val reason = c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
-                    tv.text = "✗ 下载失败（原因码 $reason）。点上面的下载按钮重试；多次失败就用电脑下载 .gguf 放进手机 Download 再「导入本地 GGUF 模型」"
-                    prefs.edit().putLong("modelDownloadId", -1).apply()
-                    downloadId = -1
-                    stopPolling()
-                }
+        val tv = findViewById<TextView>(R.id.downloadStatus)
+        when (val st = ModelSetup.pollAndFinalize(this)) {
+            is ModelSetup.State.Running -> {
+                val pct = if (st.totalMb > 0) "（" + st.sofarMb * 100 / st.totalMb + "%）" else ""
+                tv.text = "⏬ 下载中 " + st.sofarMb + "/" + st.totalMb + "MB" + pct + " —— 完成后自动配置"
             }
-        } catch (_: Exception) {
-        } finally {
-            c.close()
+            is ModelSetup.State.Done -> {
+                tv.text = st.message
+                if (st.ok) { stopPolling(); refreshPermStatus() }
+            }
+            else -> {}
         }
     }
 
