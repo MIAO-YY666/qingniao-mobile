@@ -1,4 +1,4 @@
-# 青鸟·口袋版（qingniao/mobile）
+# 青鸟·口袋版（qingniao-mobile）
 
 > 手机端的青鸟：本地小模型 + 无障碍读屏操作 + 联网搜索 + 截图汇报。
 > 与 PC 端 [qingniao](https://github.com/MIAO-YY666/qingniao) 同人格体系、同记忆格式（people/*.json 双向拷贝互通）。
@@ -24,7 +24,7 @@
 
 ```bash
 bash tools/fetch-llamacpp.sh   # 拉取 llama.cpp 源码（一次性）
-# 用 Android Studio 打开 mobile/ 目录，或命令行：
+# 用 Android Studio 打开本仓库目录，或命令行：
 tools/gradle-build.bat         # 需自备 JDK17+/Android SDK/NDK/CMake
 ```
 
