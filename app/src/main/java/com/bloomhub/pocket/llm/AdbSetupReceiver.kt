@@ -9,10 +9,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * ADB 配置通道（开发/自用，免点屏幕）：
- *   am broadcast -a com.bloomhub.pocket.ADB_DOWNLOAD --es model_id qwen3-1.7b
- *   am broadcast -a com.bloomhub.pocket.ADB_IMPORT  --es path /sdcard/.../model.gguf
- *   am broadcast -a com.bloomhub.pocket.ADB_WIZARD_DONE
+ * ADB 配置通道（开发/自用，免点屏幕）。
+ *
+ * 注意：receiver 设为 exported=false 后，**adb shell 的广播也送不进来**
+ * （shell uid ≠ 应用 uid，系统会把投递标成 SKIPPED）。所以下面的广播写法
+ * 在当前配置下不可用，保留供「临时改回导出后调试」参考：
+ *     adb shell am broadcast -n com.bloomhub.pocket/.llm.AdbSetupReceiver \
+ *       -a com.bloomhub.pocket.ADB_DOWNLOAD --es model_id qwen3-1.7b
+ *     adb shell am broadcast -n com.bloomhub.pocket/.llm.AdbSetupReceiver \
+ *       -a com.bloomhub.pocket.ADB_IMPORT  --es path /sdcard/.../model.gguf
+ *
+ * 派任务请改用 Activity 入口（见 MainActivity.handleAdbGoal）：
+ *     adb shell am start -n com.bloomhub.pocket/.MainActivity -e goal "打开设置看看"
  */
 class AdbSetupReceiver : BroadcastReceiver() {
 

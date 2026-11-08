@@ -47,6 +47,13 @@ object Screenshot {
             teardown()
             projection = mpm.getMediaProjection(code, data)
             metrics = context.resources.displayMetrics
+            // Android 14+：createVirtualDisplay 前必须 registerCallback，否则抛 SecurityException；
+            // 系统侧停止投递（用户点「停止投递」）时走 onStop 清理，避免持有失效的 projection。
+            if (Build.VERSION.SDK_INT >= 34) {
+                projection?.registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() { teardown() }
+                }, android.os.Handler(android.os.Looper.getMainLooper()))
+            }
             projection != null
         } catch (e: Exception) { false }
     }
@@ -142,6 +149,9 @@ object Screenshot {
     fun teardown() {
         display?.release(); display = null
         reader?.close(); reader = null
-        projection?.stop(); projection = null
+        // 先置空再 stop：stop 会同步触发 onStop 回调 → teardown 重入，此时 projection 已为 null，安全
+        val p = projection
+        projection = null
+        p?.stop()
     }
 }

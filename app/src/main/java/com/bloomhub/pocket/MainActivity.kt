@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import com.bloomhub.pocket.llm.CloudLlm
 import com.bloomhub.pocket.llm.LocalLlm
+import com.bloomhub.pocket.llm.Msg
 import com.bloomhub.pocket.notify.QqListener
 import com.bloomhub.pocket.screen.ScreenAccess
 import com.bloomhub.pocket.store.ChatStore
@@ -37,6 +38,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         chatStore = ChatStore(this)
+        // 日志区需要可滚动 + 允许程序滚到底（见 refreshStatus）
+        findViewById<TextView>(R.id.logText).movementMethod = android.text.method.ScrollingMovementMethod()
 
         findViewById<Button>(R.id.btnA11y).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -59,6 +62,15 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnCloud).setOnClickListener { useCloud() }
         findViewById<Button>(R.id.btnStart).setOnClickListener { startService() }
         findViewById<Button>(R.id.btnRun).setOnClickListener { runTask() }
+        // 清空排队任务：避免任务堆积时只能 force-stop（那会连带杀掉无障碍服务，MIUI 不自动恢复）
+        findViewById<Button>(R.id.btnClearQueue).setOnClickListener {
+            val n = AgentService.clearQueue()
+            Toast.makeText(
+                this,
+                if (n == 0) "队列本来就是空的" else "已清空 $n 个排队任务（执行中的不受影响）",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -81,6 +93,12 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "检测到上次崩溃日志，已显示在运行日志区", Toast.LENGTH_LONG).show()
         }
 
+        // ADB 调试入口：am start -n com.bloomhub.pocket/.MainActivity -e goal "打开设置看看"
+        // 为什么走 Activity 而不是广播：AdbSetupReceiver 已设为 exported=false，
+        // 而 adb shell 属于 shell uid，发非导出组件的广播会被系统直接 SKIPPED，
+        // 所以调试派任务改由 Activity 的 intent 承接，既不重新开放导出组件，也方便复现。
+        handleAdbGoal(intent)
+
         refreshStatus()
         handler.post(object : Runnable {
             override fun run() {
@@ -90,13 +108,77 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
+    /** 承接 adb 派发的调试任务（见 onCreate 注释） */
+    private fun handleAdbGoal(intent: Intent?) {
+        // 自检入口：am start -n com.bloomhub.pocket/.MainActivity -e selftest 200
+        // 用 repeat 段中文把 prompt 撑到几千 token，直接打 native prefill。
+        // 旧实现（整段 prompt 一个 batch）在这里必 ggml_abort → SIGABRT；分批后应正常输出。
+        intent?.getStringExtra("selftest")?.toIntOrNull()?.let { runSelfTest(it.coerceIn(1, 2000)) }
+
+        val goal = intent?.getStringExtra("goal")?.trim().orEmpty()
+        if (goal.isEmpty()) return
+        // 调试入口故意跳过「无障碍/模型」前置检查：缺什么就让任务自己报错，
+        // 这样能观察到真实失败点，而不是被 Toast 拦在半路。
+        if (!AgentService.running) {
+            try {
+                startForegroundService(Intent(this, AgentService::class.java))
+            } catch (e: Exception) {
+                chatStore.append("log", "ADB 派任务：服务启动失败 ${e.message}")
+            }
+        }
+        AgentService.enqueue(goal)
+        chatStore.append("task", "ADB 任务：$goal")
+        Toast.makeText(this, "已派发：$goal", Toast.LENGTH_SHORT).show()
+    }
+
+    /** 长 prompt 自检（验证 native 分批 prefill） */
+    private fun runSelfTest(repeat: Int) {
+        Toast.makeText(this, "自检开始：约 ${repeat * 34} 字 prompt", Toast.LENGTH_SHORT).show()
+        Thread {
+            try {
+                val llm = AgentService.ensureLlm(this) ?: throw IllegalStateException("模型未加载")
+                val filler = "这是一段用于压力测试的中文材料，目的是把提示词撑得很长，用来验证分批 prefill 是否正常工作。".repeat(repeat)
+                val prompt = "请只回复两个字：收到。不要复述下面的材料。\n\n【材料】\n$filler"
+                val t0 = System.currentTimeMillis()
+                val out = kotlinx.coroutines.runBlocking {
+                    llm.chat(listOf(Msg("user", prompt)), maxTokens = 32, temp = 0.2f)
+                }
+                val ms = System.currentTimeMillis() - t0
+                runOnUiThread {
+                    chatStore.append("log", "自检完成：prompt ${filler.length} 字，耗时 ${ms}ms，输出「${out.trim()}」")
+                    Toast.makeText(this, "自检通过（${ms}ms）", Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Throwable) {
+                runOnUiThread {
+                    chatStore.append("log", "自检异常：${e.message}")
+                    Toast.makeText(this, "自检失败：${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleAdbGoal(intent)
+    }
+
     private fun refreshStatus() {
         val tv = findViewById<TextView>(R.id.statusText)
         val a11y = if (ScreenAccess.available) "✓" else "✗"
         val llm = if (AgentService.hasLlm()) "✓" else "✗"
         tv.text = "无障碍:$a11y  模型:$llm  服务:${if (AgentService.running) "运行中" else "未启动"}\n${AgentService.statusText}"
         val log = findViewById<TextView>(R.id.logText)
-        log.text = chatStore.tail(120).joinToString("\n").ifBlank { "（尚无日志）" }
+        val text = chatStore.tail(120).joinToString("\n").ifBlank { "（尚无日志）" }
+        // 只有内容变化才重设文本：否则每 2 秒重置一次会把用户的手动滚动位置顶回去。
+        // 重设后必须滚到底部，否则最新进展在可视区之外，看起来像「没反应」。
+        if (log.text.toString() != text) {
+            log.text = text
+            log.post {
+                val layout = log.layout ?: return@post
+                val bottom = layout.getLineTop(layout.lineCount)
+                if (bottom > log.height) log.scrollTo(0, bottom - log.height)
+            }
+        }
     }
 
     /** SAF 选 .gguf → 复制到应用目录（llama.cpp 需要真实路径） */
@@ -111,8 +193,18 @@ class MainActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 2001) {
-            val ok = com.bloomhub.pocket.screen.Screenshot.init(this, resultCode, data)
-            Toast.makeText(this, if (ok) "截屏授权成功 ✓" else "截屏授权失败", Toast.LENGTH_SHORT).show()
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                // Android 14：必须先有 mediaProjection 类型前台服务再取投影，
+                // 统一转交 AgentService（先升级 FGS 类型，再 Screenshot.init）
+                startForegroundService(
+                    Intent(this, AgentService::class.java)
+                        .putExtra("projectionResultCode", resultCode)
+                        .putExtra("projectionData", data)
+                )
+                Toast.makeText(this, "截屏授权成功 ✓", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "截屏授权失败", Toast.LENGTH_SHORT).show()
+            }
             return
         }
         if (requestCode == 1001 && resultCode == Activity.RESULT_OK) {

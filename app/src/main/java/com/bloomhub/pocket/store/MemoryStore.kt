@@ -13,7 +13,8 @@ import java.io.File
 class MemoryStore(context: Context) {
     private val dir: File = File(context.filesDir, "memory/people").apply { mkdirs() }
 
-    private fun fileFor(key: String) = File(dir, key.replace(Regex("[^\\w.-]+"), "_") + ".json")
+    // Unicode 字母/数字保留（中文昵称不再坍缩成同一个文件），与 PC 端 memory.js 规则一致
+    private fun fileFor(key: String) = File(dir, key.replace(Regex("[^\\p{L}\\p{N}._-]+"), "_") + ".json")
 
     fun add(who: String, text: String, source: String) {
         if (who.isBlank() || text.isBlank()) return
@@ -96,12 +97,18 @@ class MemoryStore(context: Context) {
 /** 任务/动作流水：files/tasks.jsonl，UI 日志页读它 */
 class ChatStore(context: Context) {
     private val file: File = File(context.filesDir, "tasks.jsonl")
+    private var appends = 0
 
     fun append(kind: String, text: String) {
         try {
             file.appendText(
                 JSONObject().put("ts", System.currentTimeMillis()).put("kind", kind).put("text", text).toString() + "\n"
             )
+            // 每 200 次追加截断一次：流水只留最近 400 条，避免文件无限增长拖慢 UI 读取
+            if (++appends % 200 == 0) {
+                val lines = file.readLines()
+                if (lines.size > 600) file.writeText(lines.takeLast(400).joinToString("\n", postfix = "\n"))
+            }
         } catch (_: Exception) {}
     }
 

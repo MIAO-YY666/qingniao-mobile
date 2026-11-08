@@ -142,6 +142,13 @@
             android:text="执行任务"
             android:textStyle="bold" />
 
+        <Button
+            android:id="@+id/btnClearQueue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="清空任务队列"
+            android:textSize="12sp" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

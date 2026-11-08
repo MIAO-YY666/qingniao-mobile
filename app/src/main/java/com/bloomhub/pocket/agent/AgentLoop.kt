@@ -27,7 +27,7 @@ class AgentLoop(
     private val chat = ChatStore(context)
     private var pendingContext: String? = null
 
-    suspend fun run(goal: String, qqContext: String? = null, maxSteps: Int = 15): TaskResult {
+    suspend fun run(goal: String, qqContext: String? = null, maxSteps: Int = 12): TaskResult {
         if (!ScreenAccess.available) {
             return TaskResult(false, "无障碍服务未开启：设置 → 无障碍 → 青鸟读屏", 0)
         }
@@ -39,7 +39,7 @@ class AgentLoop(
         var steps = 0
         for (step in 1..maxSteps) {
             steps = step
-            val screen = sa.snapshot(240)
+            val screen = sa.snapshot(160)
             val curPkg = ScreenAccess.currentPackage.ifBlank { pkgFromScreen(screen) }
             if (curPkg != pkg) {
                 pkg = curPkg
@@ -50,9 +50,9 @@ class AgentLoop(
             val userPrompt = buildString {
                 append(Prompt.taskPrompt(goal, qqContext))
                 if (history.isNotBlank()) {
-                    append("\n\n【已执行动作】\n").append(history.toString().take(900))
+                    append("\n\n【已执行动作】\n").append(history.toString().take(600))
                 }
-                append("\n\n【屏幕】\n").append(truncate(screen, 2400))
+                append("\n\n【屏幕】\n").append(truncate(screen, 1200))
             }
             val messages = mutableListOf(
                 Msg("system", Prompt.system(manualText, ownerMem)),

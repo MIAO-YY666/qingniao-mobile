@@ -25,6 +25,8 @@ interface Llm {
  */
 class LocalLlm(path: String, nCtx: Int = 8192, nThreads: Int = 6) : Llm {
     private var handle: Long = 0
+    // 生成与释放互斥：换模型时 unload 不能 free 掉 nativeGenerate 正在用的 handle（use-after-free → SIGSEGV）
+    private val genLock = Any()
 
     init {
         handle = LlamaBridge.nativeLoad(path, nCtx, nThreads, 0.2f)
@@ -35,18 +37,25 @@ class LocalLlm(path: String, nCtx: Int = 8192, nThreads: Int = 6) : Llm {
 
     override suspend fun chat(messages: List<Msg>, maxTokens: Int, temp: Float): String =
         withContext(Dispatchers.Default) {
-            if (handle == 0L) return@withContext ""
             val prompt = buildChatPrompt(messages)
-            LlamaBridge.nativeGenerate(handle, prompt, maxTokens)
+            synchronized(genLock) {
+                if (handle == 0L) return@withContext ""
+                LlamaBridge.nativeGenerate(handle, prompt, maxTokens)
+            }
         }
 
-    fun stop() = LlamaBridge.nativeStop(handle)
+    fun stop() = synchronized(genLock) { if (handle != 0L) LlamaBridge.nativeStop(handle) }
 
     override fun unload() {
         if (handle != 0L) {
+            // 先置停止标志（nativeStop 只 store 原子变量，可与生成并发），让持锁的生成尽快返回
             LlamaBridge.nativeStop(handle)
-            LlamaBridge.nativeFree(handle)
-            handle = 0
+            synchronized(genLock) {
+                if (handle != 0L) {
+                    LlamaBridge.nativeFree(handle)
+                    handle = 0
+                }
+            }
         }
     }
 

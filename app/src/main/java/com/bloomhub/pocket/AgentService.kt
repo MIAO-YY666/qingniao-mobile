@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -17,6 +19,7 @@ import com.bloomhub.pocket.llm.CloudLlm
 import com.bloomhub.pocket.llm.Llm
 import com.bloomhub.pocket.llm.LocalLlm
 import com.bloomhub.pocket.screen.ScreenAccess
+import com.bloomhub.pocket.screen.Screenshot
 import com.bloomhub.pocket.store.ChatStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +49,14 @@ class AgentService : Service() {
             statusText = "队列中：${queue.size} 个任务"
         }
 
+        /** 清空待执行队列（正在执行的任务不受影响）；返回清掉的数量 */
+        fun clearQueue(): Int {
+            val drained = ArrayList<Task>()
+            queue.drainTo(drained)
+            if (drained.isNotEmpty()) statusText = "已清空队列（${drained.size} 个任务）"
+            return drained.size
+        }
+
         fun setLlm(newLlm: Llm) {
             llm?.unload()
             llm = newLlm
@@ -57,7 +68,9 @@ class AgentService : Service() {
         /**
          * 确保有可用模型：进程重启后静态 llm 会丢，这里从磁盘懒加载。
          * 所有任务入口（QQ 通知/ADB/主界面）都先调它。
+         * 加锁：多个入口并发调用时避免重复加载同一份 GGUF（浪费 1GB+ 内存）。
          */
+        @Synchronized
         fun ensureLlm(context: android.content.Context): Llm? {
             if (llm != null) return llm
             val f = java.io.File(context.filesDir, "models/model.gguf")
@@ -87,7 +100,13 @@ class AgentService : Service() {
         chatStore = ChatStore(this)
         wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pocket:agent")
-        startForeground(1, buildNotification())
+        // Android 14(API 34) 起：manifest 声明了 foregroundServiceType 的服务必须显式传类型，
+        // 两参 startForeground 会抛 MissingForegroundServiceTypeException 直接崩。
+        if (Build.VERSION.SDK_INT >= 34) {
+            startForeground(1, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, buildNotification())
+        }
         running = true
         statusText = "待命（${if (llm == null) "未加载模型" else "模型就绪"}）"
         scope.launch { loop() }
@@ -143,6 +162,28 @@ class AgentService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // 截屏授权结果：Android 14 要求「先有 mediaProjection 类型前台服务，再 createVirtualDisplay」，
+        // 所以授权回调统一转交到这里：先升级 FGS 类型，再取 MediaProjection。
+        val projCode = intent?.getIntExtra("projectionResultCode", 0) ?: 0
+        @Suppress("DEPRECATION")
+        val projData: Intent? = intent?.getParcelableExtra("projectionData")
+        if (projCode == android.app.Activity.RESULT_OK && projData != null) {
+            if (Build.VERSION.SDK_INT >= 34) {
+                try {
+                    startForeground(
+                        1, buildNotification(),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    )
+                } catch (e: Exception) {
+                    // 激活 mediaProjection 类型失败时退回 specialUse，至少服务不崩
+                    Log.w("AgentService", "激活 mediaProjection FGS 类型失败，退回 specialUse", e)
+                    startForeground(1, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                }
+            }
+            val ok = Screenshot.init(this, projCode, projData)
+            logToUi(if (ok) "截屏就绪 ✓（任务内可反复截屏）" else "截屏初始化失败：未取得 MediaProjection")
+        }
+
         // ADB/向导触发的下载：由前台服务盯完成并自动配置（广播接收器 10 秒就会被回收，盯不了）
         intent?.getStringExtra("importPath")?.let { p ->
             scope.launch {

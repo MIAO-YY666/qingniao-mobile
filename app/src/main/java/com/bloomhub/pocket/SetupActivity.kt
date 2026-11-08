@@ -185,7 +185,17 @@ class SetupActivity : AppCompatActivity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 2001) {
-            toast(if (Screenshot.init(this, resultCode, data)) "截屏授权成功 ✓" else "截屏授权未完成")
+            if (resultCode == RESULT_OK && data != null) {
+                // 同 MainActivity：Android 14 需先激活 mediaProjection 类型前台服务，交 AgentService 处理
+                startForegroundService(
+                    Intent(this, AgentService::class.java)
+                        .putExtra("projectionResultCode", resultCode)
+                        .putExtra("projectionData", data)
+                )
+                toast("截屏授权成功 ✓")
+            } else {
+                toast("截屏授权未完成")
+            }
         }
     }
 

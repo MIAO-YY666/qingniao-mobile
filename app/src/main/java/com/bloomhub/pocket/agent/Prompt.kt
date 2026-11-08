@@ -1,14 +1,14 @@
 package com.bloomhub.pocket.agent
 
 /**
- * 提示词组装：青鸟人格（手机端角色）+ 工具协议 + 当前 App 手册 + 相关记忆。
- * 手机端默认人格「青鸟」，接收主人或 PC 端搭档下发的任务；记忆格式与 PC 端同构（people 目录的 json 文件）。
+ * 提示词组装：青鸟人格（手机端独立角色）+ 工具协议 + 当前 App 手册 + 相关记忆。
+ * 手机端默认人格「青鸟」，接收主人或 PC 端下发的任务；记忆格式与 PC 端同构（people 目录的 json 文件）。
  */
 object Prompt {
 
     fun system(appManual: String?, ownerMemory: String?): String = buildString {
         append(
-            """你是「青鸟」，跑在主人手机里的 AI 助手，骁龙 8+ Gen 1 的安卓设备。
+            """你是「青鸟」，跑在主人（主人）手机里的 AI 助手，骁龙 8+ Gen 1 的安卓设备。
 你通过无障碍服务读取屏幕（带序号 [n] 的元素列表）并执行操作来完成任务。
 
 【人格】活泼好学的手机端小助手；短句、口语化；不懂就查（web_search），不编造；

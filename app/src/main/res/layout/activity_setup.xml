@@ -87,7 +87,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:textSize="13sp"
-                android:text="点下面的按钮叫醒她。想试试可以输入：&#10;· 给指定联系人发一条 QQ 消息&#10;· 今天上海天气怎么样，查完告诉我" />
+                android:text="点下面的按钮叫醒她。想试试可以输入：&#10;· 打开QQ给主人发消息：我上线啦&#10;· 今天上海天气怎么样，查完告诉我" />
             <Button
                 android:id="@+id/btnFinish"
                 android:layout_width="match_parent"

@@ -9,8 +9,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- 侧载自用应用；用于按名字打开 App（如 QQ） -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- 侧载自用应用；QQ 包可见性已由下方 <queries> 单独声明，无需 QUERY_ALL_PACKAGES -->
 
     <queries>
         <package android:name="com.tencent.mobileqq" />
@@ -36,9 +35,14 @@
         <!-- 前台服务：承载 Agent 循环与任务队列 -->
         <activity android:name=".SetupActivity" android:exported="false" />
 
+        <!-- ADB 配置通道（自用）：不导出，第三方应用无法发广播遥控本机。
+             注意：adb shell 属于 shell uid，同样送不进非导出组件（实测被系统 SKIPPED）。
+             需要 adb 派任务时改用 Activity 入口：
+               adb shell am start -n com.bloomhub.pocket/.MainActivity -e goal "打开设置看看"
+             下载/导入模型等配置请在 App 内点按完成。 -->
         <receiver
             android:name=".llm.AdbSetupReceiver"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
                 <action android:name="com.bloomhub.pocket.ADB_DOWNLOAD" />
                 <action android:name="com.bloomhub.pocket.ADB_IMPORT" />
